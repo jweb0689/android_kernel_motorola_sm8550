@@ -43,6 +43,8 @@
 #define CAMSS_RES_MAX 17
 
 struct camss_subdev_resources {
+	bool is_disabled;
+	u8   resource_id;
 	char *regulators[CAMSS_RES_MAX];
 	char *clock[CAMSS_RES_MAX];
 	char *clock_for_reset[CAMSS_RES_MAX];
