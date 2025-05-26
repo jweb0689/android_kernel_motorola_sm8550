@@ -604,19 +604,9 @@ static int video_open(struct file *file)
 
 	file->private_data = vfh;
 
-	ret = v4l2_pipeline_pm_get(&vdev->entity);
-	if (ret < 0) {
-		dev_err(video->camss->dev, "Failed to power up pipeline: %d\n",
-			ret);
-		goto error_pm_use;
-	}
-
 	mutex_unlock(&video->lock);
 
 	return 0;
-
-error_pm_use:
-	v4l2_fh_release(file);
 
 error_alloc:
 	mutex_unlock(&video->lock);
@@ -626,11 +616,7 @@ error_alloc:
 
 static int video_release(struct file *file)
 {
-	struct video_device *vdev = video_devdata(file);
-
 	vb2_fop_release(file);
-
-	v4l2_pipeline_pm_put(&vdev->entity);
 
 	file->private_data = NULL;
 
