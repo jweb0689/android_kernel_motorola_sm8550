@@ -3525,6 +3525,16 @@ static const struct resources_wrapper csid_wrapper_res_x1e80100 = {
 	.reg = "csid_wrapper",
 };
 
+void camss_set_perf_level(struct camss *camss, u32 level)
+{
+	camss->perf_level = max(camss->perf_level, level);
+}
+
+u32 camss_get_perf_level(struct camss *camss)
+{
+	return camss->perf_level;
+}
+
 /*
  * camss_add_clock_margin - Add margin to clock frequency rate
  * @rate: Clock frequency rate
@@ -4420,6 +4430,7 @@ static int camss_probe(struct platform_device *pdev)
 	camss->res = of_device_get_match_data(dev);
 
 	atomic_set(&camss->ref_count, 0);
+	camss->perf_level = 0;
 	camss->dev = dev;
 	platform_set_drvdata(pdev, camss);
 
