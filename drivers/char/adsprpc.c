@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /* Uncomment this block to log an error on every VERIFY failure */
@@ -8468,6 +8468,7 @@ static struct platform_driver fastrpc_driver = {
 union fastrpc_dev_param {
 	struct fastrpc_dev_map_dma *map;
 	struct fastrpc_dev_unmap_dma *unmap;
+	struct fastrpc_dev_get_hlos_pid *hpid;
 };
 
 long fastrpc_dev_map_dma(struct fastrpc_device *dev, unsigned long invoke_param)
@@ -8601,6 +8602,35 @@ bail:
 	return err;
 }
 
+long fastrpc_dev_get_hlos_pid(struct fastrpc_device *dev, unsigned long invoke_param)
+{
+	int err = 0;
+	union fastrpc_dev_param p;
+	struct fastrpc_file *fl = NULL;
+	struct fastrpc_apps *me = &gfa;
+	unsigned long irq_flags = 0;
+
+	p.hpid = (struct fastrpc_dev_get_hlos_pid *)invoke_param;
+	spin_lock_irqsave(&me->hlock, irq_flags);
+	/* Verify if fastrpc device is closed*/
+	VERIFY(err, dev && !dev->dev_close);
+	if (err) {
+		err = -ESRCH;
+		spin_unlock_irqrestore(&me->hlock, irq_flags);
+		return err;
+	}
+	fl = dev->fl;
+	/* Verify if fastrpc file is not NULL*/
+	if (!fl) {
+		err = -EBADF;
+		spin_unlock_irqrestore(&me->hlock, irq_flags);
+		return err;
+	}
+	p.hpid->hlos_pid = fl->tgid;
+	spin_unlock_irqrestore(&me->hlock, irq_flags);
+	return err;
+}
+
 long fastrpc_driver_invoke(struct fastrpc_device *dev, unsigned int invoke_num,
 								unsigned long invoke_param)
 {
@@ -8612,6 +8642,9 @@ long fastrpc_driver_invoke(struct fastrpc_device *dev, unsigned int invoke_num,
 		break;
 	case FASTRPC_DEV_UNMAP_DMA:
 		err = fastrpc_dev_unmap_dma(dev, invoke_param);
+		break;
+	case FASTRPC_DEV_GET_HLOS_PID:
+		err = fastrpc_dev_get_hlos_pid(dev, invoke_param);
 		break;
 	default:
 		err = -ENOTTY;
