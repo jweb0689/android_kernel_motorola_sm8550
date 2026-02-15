@@ -1,0 +1,38 @@
+# LineageOS 23.0 Kernel Build Workflow
+
+name: Build Kernel
+
+on:
+  push:
+    branches:
+      - lineage-23.0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v2
+
+      - name: Set up Java JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '11'
+
+      - name: Install Required Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git gcc g++ make ccache
+          sudo apt-get install -y bison flex libssl-dev libelf-dev
+
+      - name: Build LineageOS Kernel
+        run: |
+          cd kernel/
+          make lineage_sm8550_user_debug
+
+      - name: Archive Kernel
+        uses: actions/upload-artifact@v2
+        with:
+          name: kernel
+          path: out/target/dist/
