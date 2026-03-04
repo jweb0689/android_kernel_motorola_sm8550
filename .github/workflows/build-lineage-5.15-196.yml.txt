@@ -1,0 +1,100 @@
+name: Build LineageOS 23 (kernel 5.15.196)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Repo branch to build (default: lineage-23.0)'
+        required: false
+        default: 'lineage-23.0'
+      defconfig:
+        description: 'Kernel defconfig to use (e.g., rtw0_defconfig)'
+        required: true
+        default: ''
+      clang_url:
+        description: 'Optional URL to an Android clang tarball (leave blank to use system clang)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - name: Checkout kernel repo
+      uses: actions/checkout@v4
+      with:
+        repository: JWEB0689/android_kernel_motorola_sm8550
+        ref: ${{ github.event.inputs.branch }}
+        fetch-depth: 1
+
+    - name: Install build packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev rsync unzip python3 zip curl clang
+
+    - name: Setup optional Android clang
+      if: ${{ github.event.inputs.clang_url != '' }}
+      run: |
+        sudo mkdir -p /opt/clang
+        curl -L "${{ github.event.inputs.clang_url }}" -o /tmp/clang.tar.xz
+        sudo tar -xJf /tmp/clang.tar.xz -C /opt/clang --strip-components=1
+        echo "/opt/clang/bin" >> $GITHUB_PATH
+
+    - name: Configure environment
+      run: |
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "O=out" >> $GITHUB_ENV
+        echo "DEFCONFIG=${{ github.event.inputs.defconfig }}" >> $GITHUB_ENV
+
+    - name: Prepare output directory
+      run: |
+        mkdir -p out
+
+    - name: Generate config
+      run: |
+        set -e
+        if [ -z "${DEFCONFIG}" ]; then
+          echo "ERROR: DEFCONFIG is empty. Set the workflow input 'defconfig' to your device defconfig."
+          exit 1
+        fi
+        make O="$O" "${DEFCONFIG}"
+
+    - name: Build kernel
+      run: |
+        set -ex
+        if command -v clang >/dev/null 2>&1; then
+          echo "Using clang from PATH"
+          make -j$(nproc) O="$O" CC=clang HOSTCC=gcc
+        else
+          make -j$(nproc) O="$O" HOSTCC=gcc
+        fi
+
+    - name: Prepare AnyKernel3 and package
+      run: |
+        ANYK=AnyKernel3
+        rm -rf $ANYK
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git $ANYK
+        rm -rf $ANYK/.git
+
+        if [ -f "$O/arch/arm64/boot/Image" ]; then
+          cp "$O/arch/arm64/boot/Image" $ANYK/Image
+        elif [ -f "$O/arch/arm64/boot/Image.gz" ]; then
+          cp "$O/arch/arm64/boot/Image.gz" $ANYK/Image
+        else
+          echo "Error: kernel Image not found in $O/arch/arm64/boot/"
+          ls -la "$O/arch/arm64/boot/" || true
+          exit 1
+        fi
+
+        ZIP_NAME="lineage-23-5.15.196-${{ github.event.inputs.branch }}-${{ github.event.inputs.defconfig }}.zip"
+        cd $ANYK
+        zip -r9 "../${ZIP_NAME}" ./*
+        cd ..
+
+    - name: Upload AnyKernel zip artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: anykernel-zip
+        path: |
+          AnyKernel3/*.zip
