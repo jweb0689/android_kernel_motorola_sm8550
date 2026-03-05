@@ -1,4 +1,4 @@
-# LineageOS with KernelSU and Susfs4ksu
+#Kernel Build
 name: Build Android 13 (5.15) Kernel with KSU, SUSFS & Boot Repack
 
 on:
@@ -16,6 +16,10 @@ on:
         description: 'Defconfig Name (e.g., gki_defconfig)'
         required: true
         default: 'gki_defconfig'
+      ksu_version:
+        description: 'KernelSU Version Tag (e.g., v0.9.5, v1.0.0)'
+        required: true
+        default: 'v0.9.5'
       boot_image_url:
         description: 'Direct Download URL to your stock boot.img or init_boot.img'
         required: true
@@ -33,17 +37,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison ca-certificates curl flex gcc git libc6-dev libssl-dev openssl python3 unzip wget zip zstd
           
-      - name: Download ZyC-Clang Toolchain (From GitHub)
+      - name: Download ZyC-Clang Toolchain
         run: |
-          echo "Fetching latest ZyC-Clang from official GitHub repository..."
+          echo "Fetching latest ZyC-Clang..."
           mkdir clang
           wget -q $(curl -s https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt) -O "zyc-clang.tar.gz"
           tar -xf zyc-clang.tar.gz -C clang
           rm zyc-clang.tar.gz
 
-      - name: Download & Extract Magiskboot (From GitHub)
+      - name: Download & Extract Magiskboot
         run: |
-          echo "Extracting native magiskboot binary from official Magisk GitHub release..."
+          echo "Extracting magiskboot..."
           wget https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
           unzip Magisk-v27.0.apk lib/x86_64/libmagiskboot.so
           mv lib/x86_64/libmagiskboot.so magiskboot
@@ -53,28 +57,39 @@ jobs:
         run: |
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel_workspace
 
-      - name: Integrate KernelSU & SUSFS
+      - name: 1. Setup KernelSU (Pinned Version)
         working-directory: kernel_workspace
         run: |
-          echo "Setting up KernelSU from GitHub..."
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          echo "Setting up KernelSU version ${{ github.event.inputs.ksu_version }}..."
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.ksu_version }}
           
-          echo "Setting up SUSFS from ShirkNeko for Android 13 (5.15) via GitHub..."
+      - name: 2. Clone SUSFS
+        working-directory: kernel_workspace
+        run: |
+          echo "Setting up SUSFS from ShirkNeko for Android 13 (5.15)..."
           git clone --depth=1 -b gki-android13-5.15 https://github.com/ShirkNeko/susfs4ksu.git ../susfs4ksu
-          
+
+      - name: 3. Patch KernelSU with SUSFS
+        working-directory: kernel_workspace
+        run: |
           echo "Patching KernelSU..."
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
           cd KernelSU
           patch -p1 < 10_enable_susfs_for_ksu.patch
-          cd ..
-          
+
+      - name: 4. Patch 5.15 Kernel with SUSFS
+        working-directory: kernel_workspace
+        run: |
           echo "Copying SUSFS core files..."
           cp -r ../susfs4ksu/kernel_patches/fs/* fs/
           cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
           
           echo "Patching 5.15 Kernel..."
           patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-5.15.patch
-          
+
+      - name: 5. Inject Defconfig Flags
+        working-directory: kernel_workspace
+        run: |
           echo "Enabling fully featured KSU and SUSFS flags in defconfig..."
           cat <<EOF >> arch/arm64/configs/${{ github.event.inputs.device_defconfig }}
           CONFIG_KSU=y
@@ -110,7 +125,7 @@ jobs:
           make O=out ${{ github.event.inputs.device_defconfig }}
           make O=out -j$(nproc)
 
-      - name: Package AnyKernel3 Zip (From GitHub)
+      - name: Package AnyKernel3 Zip
         run: |
           echo "Packaging via AnyKernel3..."
           git clone https://github.com/osm0sis/AnyKernel3.git
