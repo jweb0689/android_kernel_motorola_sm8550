@@ -1,4 +1,4 @@
-#LineageOS23.2 with KernelSU and Susfs
+# LineageOS23.2 KernelSU and susfs build
 name: Build Android 13 (5.15) Kernel with KSU, SUSFS & Boot Repack
 
 on:
@@ -33,13 +33,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison ca-certificates curl flex gcc git libc6-dev libssl-dev openssl python3 unzip wget zip zstd
           
-      - name: Download ZyC-Clang Toolchain (Android 13/5.15 Optimized)
+      - name: Download ZyC-Clang Toolchain (From GitHub)
         run: |
-          git clone --depth=1 https://gitlab.com/zyc-compiler/zyc-clang.git clang
+          echo "Fetching latest ZyC-Clang from official GitHub repository..."
+          mkdir clang
+          # Fetches the direct GitHub release link from ZyCromerZ's GitHub repo and extracts it
+          wget -q $(curl -s https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt) -O "zyc-clang.tar.gz"
+          tar -xf zyc-clang.tar.gz -C clang
+          rm zyc-clang.tar.gz
 
-      - name: Download & Extract Magiskboot (Official)
+      - name: Download & Extract Magiskboot (From GitHub)
         run: |
-          echo "Extracting native magiskboot binary from official Magisk release..."
+          echo "Extracting native magiskboot binary from official Magisk GitHub release..."
           wget https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
           unzip Magisk-v27.0.apk lib/x86_64/libmagiskboot.so
           mv lib/x86_64/libmagiskboot.so magiskboot
@@ -52,11 +57,11 @@ jobs:
       - name: Integrate KernelSU & SUSFS
         working-directory: kernel_workspace
         run: |
-          echo "Setting up KernelSU..."
+          echo "Setting up KernelSU from GitHub..."
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          echo "Setting up SUSFS for Android 13 (5.15)..."
-          git clone --depth=1 -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu
+          echo "Setting up SUSFS from sidex15 for Android 13 (5.15) via GitHub..."
+          git clone --depth=1 -b gki-android13-5.15 https://github.com/sidex15/susfs4ksu.git ../susfs4ksu
           
           echo "Patching KernelSU..."
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
@@ -90,7 +95,7 @@ jobs:
           make O=out ${{ github.event.inputs.device_defconfig }}
           make O=out -j$(nproc)
 
-      - name: Package AnyKernel3 Zip
+      - name: Package AnyKernel3 Zip (From GitHub)
         run: |
           echo "Packaging via AnyKernel3..."
           git clone https://github.com/osm0sis/AnyKernel3.git
