@@ -1,139 +1,142 @@
-# LineageOS 23.0 Kernel Build Workflow with KernelSU & SUSFS
-
-name: Build Kernel with KernelSU and SUSFS
+# LineageOS with KernelSU and Susfs4ksu
+name: Build Android 13 (5.15) Kernel with KSU, SUSFS & Boot Repack
 
 on:
-  push:
-    branches:
-      - lineage-23.0
-  pull_request:
-    branches:
-      - lineage-23.0
   workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: 'Kernel Repository URL'
+        required: true
+        default: 'https://github.com/your-username/your-kernel'
+      kernel_branch:
+        description: 'Kernel Branch'
+        required: true
+        default: 'main'
+      device_defconfig:
+        description: 'Defconfig Name (e.g., gki_defconfig)'
+        required: true
+        default: 'gki_defconfig'
+      boot_image_url:
+        description: 'Direct Download URL to your stock boot.img or init_boot.img'
+        required: true
+        default: 'https://link-to-your-stock-image.img'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout Source Code
+      - name: Checkout Build Environment
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Build Environment
+      - name: Setup Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git gcc g++ make ccache \
-            bison flex libssl-dev libelf-dev \
-            build-essential bc \
-            device-tree-compiler python3 \
-            curl wget
-
-      - name: Download Android Toolchain
+          sudo apt-get install -y build-essential bc bison ca-certificates curl flex gcc git libc6-dev libssl-dev openssl python3 unzip wget zip zstd
+          
+      - name: Download ZyC-Clang Toolchain (From GitHub)
         run: |
-          mkdir -p ~/toolchain
-          cd ~/toolchain
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android-kernel-common.tar.gz
-          tar xzf android-kernel-common.tar.gz 2>/dev/null || echo "Toolchain download note"
+          echo "Fetching latest ZyC-Clang from official GitHub repository..."
+          mkdir clang
+          wget -q $(curl -s https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt) -O "zyc-clang.tar.gz"
+          tar -xf zyc-clang.tar.gz -C clang
+          rm zyc-clang.tar.gz
 
-      - name: Integrate KernelSU
+      - name: Download & Extract Magiskboot (From GitHub)
         run: |
-          git clone https://github.com/tiann/KernelSU.git
+          echo "Extracting native magiskboot binary from official Magisk GitHub release..."
+          wget https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
+          unzip Magisk-v27.0.apk lib/x86_64/libmagiskboot.so
+          mv lib/x86_64/libmagiskboot.so magiskboot
+          chmod +x magiskboot
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel_workspace
+
+      - name: Integrate KernelSU & SUSFS
+        working-directory: kernel_workspace
+        run: |
+          echo "Setting up KernelSU from GitHub..."
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          
+          echo "Setting up SUSFS from ShirkNeko for Android 13 (5.15) via GitHub..."
+          git clone --depth=1 -b gki-android13-5.15 https://github.com/ShirkNeko/susfs4ksu.git ../susfs4ksu
+          
+          echo "Patching KernelSU..."
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
           cd KernelSU
-          chmod +x setup.sh
-          ./setup.sh ..
+          patch -p1 < 10_enable_susfs_for_ksu.patch
           cd ..
+          
+          echo "Copying SUSFS core files..."
+          cp -r ../susfs4ksu/kernel_patches/fs/* fs/
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
+          
+          echo "Patching 5.15 Kernel..."
+          patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-5.15.patch
+          
+          echo "Enabling fully featured KSU and SUSFS flags in defconfig..."
+          cat <<EOF >> arch/arm64/configs/${{ github.event.inputs.device_defconfig }}
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
+          EOF
 
-      - name: Integrate SUSFS
+      - name: Build the 5.15 Kernel
+        working-directory: kernel_workspace
         run: |
-          git clone https://github.com/sidex15/SUSFS4KernelSU.git
-          cd SUSFS4KernelSU
-          chmod +x apply_susfs_patch.sh
-          ./apply_susfs_patch.sh .. || echo "SUSFS patch applied with warnings"
-          cd ..
-
-      - name: Configure Kernel for KernelSU & SUSFS
-        run: |
-          # Enable required configurations
-          echo "CONFIG_KERNELSU=y" >> .config
-          echo "CONFIG_KPROBES=y" >> .config
-          echo "CONFIG_HAVE_KPROBES=y" >> .config
-          echo "CONFIG_KPROBES_ON_FTRACE=y" >> .config
-          echo "CONFIG_SUSFS=y" >> .config
-
-      - name: Build LineageOS Kernel
-        run: |
+          export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
-          export BUILD_CONFIG=build.config.moto
-          export CCACHE_EXEC=$(which ccache)
-          export USE_CCACHE=1
-          ccache -M 50G
+          export CC=clang
+          export LLVM=1
+          export LLVM_IAS=1
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
           
-          # Build using the automated script
-          ./build/build.sh 2>&1 || true
-          
-          # If build script fails, try manual build
-          if [ ! -f "out/Image.gz" ]; then
-            echo "Build script failed, attempting manual build..."
-            make ARCH=arm64 -j$(nproc) Image.gz dtbs 2>&1 || true
-          fi
+          make O=out ${{ github.event.inputs.device_defconfig }}
+          make O=out -j$(nproc)
 
-      - name: Package Build Artifacts
+      - name: Package AnyKernel3 Zip (From GitHub)
         run: |
-          mkdir -p artifacts
-          
-          # Copy kernel image
-          if [ -f "out/Image.gz" ]; then
-            cp out/Image.gz artifacts/
-            echo "✓ Kernel image packaged"
-          fi
-          
-          # Copy DTB if available
-          if [ -f "out/Image.gz-dtb" ]; then
-            cp out/Image.gz-dtb artifacts/
-            echo "✓ DTB image packaged"
-          fi
-          
-          # Copy modules if built
-          if [ -d "out/modules" ]; then
-            cp -r out/modules artifacts/
-            echo "✓ Modules packaged"
-          fi
-          
-          # Create build info
-          echo "Build Information:" > artifacts/BUILD_INFO.txt
-          echo "Repository: JWEB0689/android_kernel_motorola_sm8550" >> artifacts/BUILD_INFO.txt
-          echo "Branch: lineage-23.0" >> artifacts/BUILD_INFO.txt
-          echo "Build Date: $(date)" >> artifacts/BUILD_INFO.txt
-          echo "KernelSU: Integrated" >> artifacts/BUILD_INFO.txt
-          echo "SUSFS: Integrated" >> artifacts/BUILD_INFO.txt
+          echo "Packaging via AnyKernel3..."
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cp kernel_workspace/out/arch/arm64/boot/Image AnyKernel3/
+          cd AnyKernel3
+          zip -r9 ../AnyKernel3-Android13-5.15-KSU-SUSFS.zip *
 
-      - name: Upload Kernel Artifacts
+      - name: Repack Stock Boot Image with Magiskboot
+        run: |
+          echo "Downloading Stock Boot Image from user URL..."
+          wget -O stock_boot.img "${{ github.event.inputs.boot_image_url }}"
+          
+          echo "Unpacking Stock Boot Image..."
+          ./magiskboot unpack stock_boot.img
+          
+          echo "Replacing Kernel..."
+          cp kernel_workspace/out/arch/arm64/boot/Image kernel
+          
+          echo "Repacking..."
+          ./magiskboot repack stock_boot.img
+          mv new-boot.img Patched-Boot-Image-KSU-SUSFS.img
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-artifacts-${{ github.sha }}
-          path: artifacts/
-          retention-days: 30
-
-      - name: Create Build Summary
-        if: always()
-        run: |
-          echo "## Kernel Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Repository**: JWEB0689/android_kernel_motorola_sm8550" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: lineage-23.0" >> $GITHUB_STEP_SUMMARY
-          echo "- **Kernel Type**: LineageOS 23.0 with KernelSU & SUSFS" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Date**: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Device**: Motorola SM8550" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Features:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✓ KernelSU Integrated" >> $GITHUB_STEP_SUMMARY
-          echo "- ✓ SUSFS Integrated" >> $GITHUB_STEP_SUMMARY
-          echo "- ✓ Automated Build Pipeline" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f "artifacts/Image.gz" ]; then
-            echo "- ✓ Kernel Image Generated" >> $GITHUB_STEP_SUMMARY
-          fi
+          name: KSU-SUSFS-Kernel-Release
+          path: |
+            AnyKernel3-Android13-5.15-KSU-SUSFS.zip
+            Patched-Boot-Image-KSU-SUSFS.img
