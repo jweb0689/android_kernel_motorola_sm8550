@@ -75,7 +75,7 @@ jobs:
           echo "Patching KernelSU..."
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
           cd KernelSU
-          patch < 10_enable_susfs_for_ksu.patch
+          patch -p1 < 10_enable_susfs_for_ksu.patch
 
       - name: 4. Patch 5.15 Kernel with SUSFS
         working-directory: kernel_workspace
