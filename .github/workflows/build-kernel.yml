@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Build Environment
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Build Dependencies
         run: |
@@ -149,7 +149,7 @@ jobs:
           mv new-boot.img Patched-Boot-Image-KSU-SUSFS.img
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: KSU-SUSFS-Kernel-Release
           path: |
