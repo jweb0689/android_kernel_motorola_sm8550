@@ -23,6 +23,7 @@ on:
         description: "KernelSU variant"
         type: choice
         options:
+          - KernelSU
           - SukiSU
           - ReSukiSU
           - KernelSU-Next
@@ -69,7 +70,7 @@ jobs:
 
     steps:
     - name: Free Disk Space
-      uses: endersonmenezes/free-disk-space@v3
+      uses: endersonmenezes/free-disk-space@v5
       with:
         remove_android: true
         remove_dotnet: true
@@ -324,7 +325,7 @@ jobs:
         fi
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: ${{ env.FILE_NAME }}-AnyKernel3
         path: ./AnyKernel3/**
